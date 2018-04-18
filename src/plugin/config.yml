@@ -1,0 +1,24 @@
+# Test Lookup Plugin Module
+---
+package:
+    author: Erik Pearson
+    name: test-lookup
+    description: A test module for a lookup control
+install:
+    widgets:
+        -
+            id: test-lookup_panel
+            module: panel
+            type: es6
+    routes:
+        -
+            path: [test-lookup]
+            widget: test-lookup_panel
+            authorization: true
+    menu:
+        -
+            name: test-lookup
+            path: [test-lookup]
+            label: Test Lookup
+            icon: flask
+            beta: true
