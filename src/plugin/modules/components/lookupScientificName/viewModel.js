@@ -33,16 +33,34 @@ define([
         return null;
     }
 
+    class Focusser {
+        constructor() {
+        }
+
+        setElement(element) {
+            this.element = element;
+        }
+
+        focus() {
+            if (!this.element) {
+                return;
+            }
+            this.element.focus();
+        }
+
+    }
+
     class ViewModel extends ViewModelBase {
 
         constructor(params) {
             super(params);
-            // import params
 
+            // import params
             this.inputValue = params.inputValue;
             // datasource is an object with the method "search"...
             this.dataSources = params.dataSources;
-            //console.log('data source', this.dataSource);
+
+            this.inputValueFocusser = new Focusser();
 
             this.loading = ko.observable(false);
             // var searchRegexp = ko.pureComputed(function () {
@@ -55,14 +73,15 @@ define([
                 if (!this.inputValue() || this.inputValue().length < 2) {
                     return null;
                 }
-                console.log('search expr', this.inputValue(),parseSearchExpression(this.inputValue()));
                 return parseSearchExpression(this.inputValue());
             });
 
             this.tooManyResults = ko.observable(false);
             this.searchCount = ko.observable();
             this.totalCount = ko.observable();
-            this.lastSearchField = null;
+            this.lookupField = null;
+
+            let lastSearchExpression = parseSearchExpression('');
 
             this.subscribe(this.searchExpression, (newSearchExpression) => {
                 this.isSearching(true);
@@ -70,61 +89,91 @@ define([
                 let dataSource;
                 let searchInput;
 
-                if (newSearchExpression.strain) {
-                    if (this.lastSearchField !== 'strain') {
-                        this.searchedValues.removeAll();
+                // Determine which lookup to use. This is based on which field is being "edited".
+                // In the simple case, it is just the right-most term.
+                // However, it may also be that the user is going back to edit a prior field, in 
+                // which case we look for a change in a field. This is the universal way.
+                let field;
+                let fields = ['genus', 'species', 'strain'];
+                for (var i = 0; i < fields.length; i += 1) {
+                    var fieldName = fields[i];
+                    console.log('hmm', fieldName, newSearchExpression[fieldName], lastSearchExpression[fieldName]);
+                    if (newSearchExpression[fieldName] && newSearchExpression[fieldName] !== lastSearchExpression[fieldName]) {
+                        field = fieldName;
+                        break;
                     }
-                    this.lastSearchField = 'strain';
-                    dataSource = this.dataSources.strain;
-                    searchInput = newSearchExpression.strain;
-                } else if (newSearchExpression.species) {
-                    if (this.lastSearchField !== 'species') {
-                        this.searchedValues.removeAll();
-                    }
-                    this.lastSearchField = 'species';
-                    dataSource = this.dataSources.species;
-                    searchInput = newSearchExpression.species;
-                } else if (newSearchExpression.genus) {
-                    if (this.lastSearchField !== 'genus') {
-                        this.searchedValues.removeAll();
-                    }
-                    this.lastSearchField = 'genus';
-                    dataSource = this.dataSources.genus;
-                    searchInput = newSearchExpression.genus;
-                } else {
+                }
+                lastSearchExpression = newSearchExpression;
+                if (!field) {
                     return null;
                 }
+               
+
+                if (this.lookupField !== field) {
+                    this.searchedValues.removeAll();
+                }
+                this.lookupField = field;
+                dataSource = this.dataSources[field];
+                searchInput = newSearchExpression[field];
+
+
+                // if (newSearchExpression.strain) {
+                //     if (this.lookupField !== 'strain') {
+                //         this.searchedValues.removeAll();
+                //     }
+                //     this.lookupField = 'strain';
+                //     dataSource = this.dataSources.strain;
+                //     searchInput = newSearchExpression.strain;
+                // } else if (newSearchExpression.species) {
+                //     if (this.lookupField !== 'species') {
+                //         this.searchedValues.removeAll();
+                //     }
+                //     this.lookupField = 'species';
+                //     dataSource = this.dataSources.species;
+                //     searchInput = newSearchExpression.species;
+                // } else if (newSearchExpression.genus) {
+                //     if (this.lookupField !== 'genus') {
+                //         this.searchedValues.removeAll();
+                //     }
+                //     this.lookupField = 'genus';
+                //     dataSource = this.dataSources.genus;
+                //     searchInput = newSearchExpression.genus;
+                // } else {
+                //     return null;
+                // }
                 dataSource.totalCount()
                     .then((result) => {
                         this.totalCount(result);
                         if (!newSearchExpression) {
                             return null;
                         }
-                        console.log('expr', newSearchExpression);
                         return dataSource.search(searchInput);
                     })
                     .then((result) => {
                         this.isSearching(false);
-                        // no input.
+
+                        // no input, just reset the control
                         if (result === null) {
                             this.searchedValues.removeAll();
                             this.searchCount(null);
                             return;
                         }                    
                         this.searchCount(result.length);
+
+                        // don't attempt to render with many many results because
+                        // (a) it affects performance of the control 
+                        // (b) a lookup/typeahead is not useful if you need to scroll through so many items!
                         if (result.length > 200) {
                             this.searchedValues.removeAll();
                             this.tooManyResults(true);
                             return;
-                        } else {
-                            this.tooManyResults(false);
                         }
+                        this.tooManyResults(false);
                         if (result.length === 0) {
                             this.searchedValues.removeAll();
                             return;
                         }
 
-                        // var current = searchedValues;
                         var changes = [];
                         var currentPos = 0,
                             resultPos = 0,
@@ -184,7 +233,6 @@ define([
                         }
                         let adj = 0;
                         changes.forEach((change) => {
-                            console.log('change', change);
                             let value;
                             switch (change.op) {
                             case 'delete':
@@ -248,8 +296,37 @@ define([
         }
 
         doSelectValue(selected) {
-            this.inputValue(selected.label);
+            // the selected label now takes the place 
+            // of the current position in the input value.
+            let parsed = parseSearchExpression(this.inputValue());
+            switch (this.lookupField) {
+            case 'genus':
+                parsed.genus = selected.label;
+                break;
+            case 'species': 
+                parsed.species = selected.label;
+                break;
+            case 'strain':
+                parsed.strain = selected.label;
+                break;
+            default:
+                console.warn('hmm', this.lookupField, selected, parsed);
+            }
+            
+            let newInput = [parsed.genus, parsed.species, parsed.strain]
+                .filter((item) => {
+                    return item ? true : false;
+                })
+                .join(' ');
+
+            if (this.lookupField !== 'strain') {
+                newInput += ' ';
+            }
+
+            this.inputValue(newInput);
             this.inputValue.markClean();
+            this.inputValueFocusser.focus();
+
             this.itemSelected(true);
             this.showingAll(false);
         }

@@ -36,6 +36,9 @@ define([
                             valueUpdate: '"input"',
                             event: {
                                 keyup: '$component.onInputKeyup'
+                            },
+                            focus: {
+                                focusser: '$component.inputValueFocusser'
                             }
                         }
                     }),
